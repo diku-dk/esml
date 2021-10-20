@@ -9,10 +9,10 @@ mu = Const('mu') # Vertical mixing
 g = Const('g') # Gravity constant
 
 # Set up spatial and field variables
-lam,phi,z = SpatialCoordinates(3) # Longitude, latitude and depth
-t         = TimeCoordinate()
-u,v,w     = Field([lam,phi,z], 3) # Water density velocities along lam, phi, and z
-p, rho    = Field([lam,phi,z], 2) # Pressure and water density
+lam,phi,z = SpatialCoordinates('lam', 'phi', 'z') # Longitude, latitude and depth
+t         = TimeCoordinate('t')
+u,v,w     = Field([lam,phi,z], ['u', 'v', 'w']) # Water density velocities along lam, phi, and z
+p, rho    = Field([lam,phi,z], ['p', 'rho']) # Pressure and water density
 
 # Auxiliary definitions for defining equations
 f = 2*Omega*Sin(phi)            # Coriolis parameter f
@@ -30,3 +30,7 @@ EOM2 = D(v,t) == -advection(v) + (u*u)*Tan(phi)/a + f*u - 1/(rho0 * a * Cos(phi)
 velocities_eq  = [u,v,w] == Gradient(rho)
 hydrostatic_eq = D(p,z) == -rho*g
 
+print(EOM1)
+print(EOM2)
+print(str(velocities_eq))
+print(str(hydrostatic_eq))

@@ -1,5 +1,5 @@
 from ESML import *
-from ocean_model import lam,phi,z, EOM1, EOM2, velocities_eq, hydrostatic_eq
+from ocean_model import lam,phi,z, t, EOM1, EOM2, velocities_eq, hydrostatic_eq
 
 ocean_grid = GridData("world_map.h5", coordinates=[lam,phi,z])
 
