@@ -20,3 +20,6 @@ system = ODESystem(domain=d,
                    time=t,
                    equations=[EOM1, EOM2],
                    consts={'g': 9.81})
+
+system.describe()
+system.run()
