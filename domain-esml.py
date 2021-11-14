@@ -10,7 +10,7 @@ ocean_grid.set_masked_bc("land_mask", "no-flux")
 ocean_system = ODESystem(domain=ocean_grid, time=t,
                          equations=[EOM1,EOM2,velocities_eq, hydrostatic_eq],
                          time_integrator   = Integrators("Dormand-Prince"),  # NB: These are just named Butcher-tables, i.e. data; No need to program each separately
-                         spatial_derivative= FiniteDifference("Central 5p"]) # NB: These are just named convolution coefficient tables, i.e. data.
+                         spatial_derivative= FiniteDifference("Central", order=4)) # NB: These are just named convolution coefficient tables, i.e. data.
 
 biogeochemistry_system = ODESystem(domain=bio_grid, time=t,....);
 

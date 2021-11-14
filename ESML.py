@@ -90,7 +90,8 @@ class ConstExp(Exp):
         return vtable[self.v]
 
 class FieldExp(Exp):
-    def __init__(self, v):
+    def __init__(self, domain, v):
+        self.domain = domain
         self.v = v
 
     def __str__(self):
@@ -105,6 +106,14 @@ class FieldExp(Exp):
     def eval(self, vtable):
         return vtable[self.v]
 
+    def diff(self, vtable, wrt):
+        M = slice(1,-1)
+        L = slice(0,-2)
+        R = slice(2,None)
+        f = vtable[self]
+        dx, that, this = finite_differences_slice(self.f, wrt)
+        return (1/dx)*(f[that] - f[this])
+
 class DiffExp(Exp):
     def __init__(self, f, xs):
         self.f = f
@@ -115,6 +124,9 @@ class DiffExp(Exp):
 
     def leaves(self):
         return self.f.leaves() + [e for x in self.xs for e in x.leaves()]
+
+    def eval(self, vtable):
+        return self.f.diff(vtable, *self.xs)
 
 class FunExp(Exp):
     def __init__(self, f, args):
@@ -151,6 +163,11 @@ class GradExp(Exp):
 
     def leaves(self):
         return [self.x]
+
+class Flux(Exp):
+    def __init__(self, x):
+        assert(isinstance(x, FieldExp))
+        self.v = x
 
 class Eq:
     def __init__(self, x, y):
@@ -190,10 +207,6 @@ class ExpList:
 def D(f, x, order=1):
     return DiffExp(f, [x for i in range(order)])
 
-class SpaceHandle:
-    def __init__(self, coords):
-        self.coords = coords
-
 class SpatialCoordinate(Exp):
     def __init__(self, v):
         self.v = v
@@ -228,9 +241,6 @@ class TimeCoordinate(Exp):
 
 def SpatialCoordinates(*vs):
     coords = list([ SpatialCoordinate(v) for v in vs ])
-    h = SpaceHandle(coords)
-    for c in coords:
-        c.space = h
     return coords
 
 class FieldHandle:
@@ -240,10 +250,7 @@ class FieldHandle:
         self.outputs = outputs
 
 def Field(inputs, vs):
-    outputs = list([ FieldExp(v) for v in vs ])
-    f = FieldHandle(inputs[0].space, outputs)
-    for o in outputs:
-        o.f = f
+    outputs = list([ FieldExp(inputs, v) for v in vs ])
     if len(outputs) == 1:
         return outputs[0]
     else:
@@ -272,13 +279,20 @@ class Initial:
     def initial(self, c):
         return self._initial[c]
 
-def fields_in_exp(e):
-    if isinstance(e, FieldExp):
-        return set([e.f])
-    else:
-        return set()
+class Boundary:
+    pass
 
-def field_vars_in_exp(e):
+class MinOf(Boundary):
+    def __init__(self, x):
+        assert(isinstance(x, SpatialCoordinate))
+        self.v = x
+
+class MaxOf(Boundary):
+    def __init__(self, x):
+        assert(isinstance(x, SpatialCoordinate))
+        self.v = x
+
+def fields_in_exp(e):
     if isinstance(e, FieldExp):
         return set([e])
     else:
@@ -296,10 +310,23 @@ def consts_in_exp(e):
     else:
         return set()
 
+def finite_differences_slice(f, wrt):
+    M = slice(1,-1)
+    L = slice(0,-2)
+    R = slice(2,None)
+    assert(len(f.space.coords) == 2)
+    dx = 1 # FIXME
+    if wrt == f.space.coords[0]:
+        return (dx, (R,M), (M,M))
+    elif wrt == f.space.coords[1]:
+        return (dx, (M,R), (M,M))
+    else:
+        raise Exception('%a %a', f, wrt)
+
 class ODESystem:
     dtype = np.float64
 
-    def __init__(self, domain, initial, time, equations, consts={}):
+    def __init__(self, domain, initial, boundary, time, equations, consts={}):
         fields = set()
         times = set ()
         for e in equations:
@@ -316,30 +343,25 @@ class ODESystem:
         self.domain = domain
         self.initial = initial
         self.fields = fields
-        self.spaces = set([ s.space for s in self.fields])
+        self.space = set([ c for f in self.fields for c in f.domain])
         self.time = time
         self.equations = equations
         self.consts = consts
-
-        for c in self.consts:
-            self.consts[c] = arg(self.consts[c])
+        self.boundary = boundary
 
     def describe(self):
         for (c,v) in self.consts.items():
-            print('const %s %f.' % (c, v.v))
+            print('const %s %f.' % (c, v))
         print('time %s.' % self.time.v)
-        for s in self.spaces:
-            def coord(c):
-                lo,hi = self.domain.bounds(c)
-                return '(%d <= %s <= %d)' % (lo,c.v,hi)
-            print('space %s.' % ' '.join(map(coord,s.coords)))
+        for c in self.space:
+            lo,hi = self.domain.bounds(c)
+            print('space (%d <= %s <= %d).' % (lo,c.v,hi))
         for f in self.fields:
             def coord(c):
                 return c.v
             def out(o):
                 return '(%s = %s)' % (o.v, str(self.initial.initial(o)))
-            print('field %s -> %s.' % (' '.join(map(coord,f.space.coords)),
-                                       ' '.join(map(out,f.outputs))))
+            print('field %s -> %s.' % (' '.join(map(coord,f.domain)), out(f)))
         for e in self.equations:
             print('equation %s.' % str(e))
 
@@ -361,8 +383,21 @@ class ODESystem:
                 spatial_grid[c] = g
 
         for f in self.fields:
+            unit = np.ones([dim_steps[c] for c in f.space.coords], dtype=self.dtype)
             for out in f.outputs:
-                field_data[out] = np.ones([dim_steps[c] for c in f.space.coords],
-                                          dtype=self.dtype) * \
-                                          self.initial.initial(out).eval(spatial_grid)
-        print(field_data)
+                field_data[out] = unit * self.initial.initial(out).eval(vtable=spatial_grid)
+
+        t = 0
+        t0 = 0
+
+        evolve_in_time = set()
+
+        for e in self.equations:
+            lhs = e.x
+            rhs = e.y
+
+            if (lhs.xs == [self.time]):
+                evolve_in_time += lhs.f
+
+        dt = 0.001
+
