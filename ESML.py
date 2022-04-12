@@ -243,12 +243,6 @@ def SpatialCoordinates(*vs):
     coords = list([ SpatialCoordinate(v) for v in vs ])
     return coords
 
-class FieldHandle:
-    def __init__(self, space, outputs):
-        assert(isinstance(space, SpaceHandle))
-        self.space = space
-        self.outputs = outputs
-
 def Field(inputs, vs):
     outputs = list([ FieldExp(inputs, v) for v in vs ])
     if len(outputs) == 1:
@@ -401,3 +395,66 @@ class ODESystem:
 
         dt = 0.001
 
+class FiniteDifference:
+    def __init__(self, type, order):
+        self.type = type
+        self.order = order
+
+class Integrator:
+    def __init__(self, type):
+        self.type = type
+
+from io import StringIO
+
+def gen_futhark(system, derivative):
+    def field_type(f):
+        shape = ''.join([ '[{}]'.
+                          format(system.domain.size(d))
+                          for d in f.domain ])
+        return '{}f64'.format(shape)
+
+    def field_param(f):
+        return '{}: {}'.format(f, field_type(f))
+
+    def compile_exp(e):
+        if isinstance(e, ConstExp):
+            return e.v
+        if isinstance(e, FieldExp):
+            return e.v
+        elif isinstance(e, BinOpExp):
+            return '({} {} {})'.format(compile_exp(e.x), e.op, compile_exp(e.y))
+        elif isinstance(e, FunExp):
+            return '({} {})'.format(e.f, ' '.join(map(compile_exp, e.args)))
+        elif isinstance(e, DiffExp):
+            return 'D({})'.format(compile_exp(e.f))
+        else:
+            raise Exception('Cannot compile expression of type {}: {}'.format(type(e),e))
+
+    def field_delta_function(f,rhs):
+        rettype = field_type(f)
+        idx_params = ['({}: i64)'.format(p) for p in f.domain]
+        state_params = ['({})'.format(field_param(f)) for f in system.fields]
+        params = state_params + idx_params + ['(dt: f64)']
+        body = compile_exp(rhs)
+        return 'def d{}_dt {} : {} = {}'.format(f, ' '.join(params), rettype, body)
+
+    io = StringIO()
+    for (c,v) in system.consts.items():
+        io.write('def {} : f64 = {}\n'.format(c,v))
+
+    for e in system.equations:
+        lhs = e.x
+        rhs = e.y
+        f = lhs.f
+        assert(lhs.xs == [system.time])
+        io.write(field_delta_function(f,rhs) + '\n')
+
+    return io.getvalue()
+
+class Discretisation:
+    def __init__(self, system, spatial_derivative, time_integrator):
+        self.system = system
+        self.spatial_derivative = spatial_derivative
+
+    def gen(self):
+        print(gen_futhark(self.system, self.spatial_derivative))

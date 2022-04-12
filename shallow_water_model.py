@@ -34,10 +34,12 @@ system = ODESystem(domain=d,
                    equations=eqns.values(),
                    consts={'g': 9.81, 'h0': 5})
 
+print('# Description of system')
 system.describe()
 
-# disc = Discretisation(system=system,
-#                       spatial_derivative = FiniteDifference("Central", order=4),
-#                       time_integrator = Integrators("Forward-Euler"))
+disc = Discretisation(system=system,
+                      spatial_derivative = FiniteDifference("Central", order=4),
+                      time_integrator = Integrator("Forward-Euler"))
 
-# disc.run()
+print('\n# Futhark code')
+disc.gen()
